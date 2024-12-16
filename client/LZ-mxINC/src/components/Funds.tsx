@@ -1,7 +1,15 @@
-import React from "react";
+import { useEffect } from "react";
 
-const Funds = () => {
-  return <div className="text-end">Funds: 0</div>;
+interface FundsProps {
+  balance: number;
+  setBalance: () => void;
+}
+
+const Funds = ({ balance, setBalance }: FundsProps) => {
+  useEffect(() => {
+    setBalance();
+  }, [setBalance]);
+  return <div className="text-end">Funds: {balance}</div>;
 };
 
 export default Funds;

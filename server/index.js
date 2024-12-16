@@ -2,15 +2,18 @@ const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
 const UserModel = require("./models/users");
+const IdsModel = require("./models/ids");
 const cors = require("cors");
 const productsInfo = require("../products_info.json").products;
-require("dotenv").config({ path: "./config.env" });
+require("dotenv").config({ path: "./.env" });
 
 app.use(express.json()); // makes `request.body` work.
 app.use(cors());
 
 const connect = () => {
-  mongoose.connect(process.env.ATLAS_URI, {});
+  mongoose.connect(process.env.ATLAS_URI, {
+    dbName: "LZ-mxINC",
+  });
 };
 
 connect();
@@ -31,6 +34,16 @@ app.get("/getUsers", async (_, response) => {
   }
 });
 
+app.get("/getUserBalance:id", async (request, response) => {
+  try {
+    const userId = parseInt(request.params.id.substring(1), 10);
+    const user = await UserModel.find({ id: userId }).exec();
+    response.status(200).json(user[0].get("balance"));
+  } catch (error) {
+    response.status(404).json({ message: "User not found" });
+  }
+});
+
 // For the `app.post()` method.
 class UserExistsError extends Error {
   constructor(message) {
@@ -39,16 +52,41 @@ class UserExistsError extends Error {
   }
 }
 
+class UserCreationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "UserCreationError";
+  }
+}
+
 app.post("/createUser", async (request, response) => {
   try {
     const user = request.body;
+    const userId = user.id;
+    const userPeriod = user.period;
+
+    // Check if ID in bounds
+    if (userId < 100_000 || userId > 999_999) {
+      throw new UserCreationError("Invalid ID");
+    }
+
+    const currentIds = await IdsModel.findOne({});
+    const periodString = "period" + (userPeriod == 1 ? "One" : "Two");
+    const idsInPeriod = currentIds.get(periodString);
+    const idIndex = idsInPeriod.indexOf(userId);
+
+    if (idIndex == -1) {
+      throw new UserCreationError("ID not found in school period.");
+    }
+    currentIds[periodString].splice(idIndex, 1);
+    await currentIds.save();
+
     const newUser = new UserModel(user);
     const createdUser = await newUser.save({ isNew: true }).catch((error) => {
       if (error.code === 11000) {
         throw new UserExistsError("User already exists.");
-      } else {
-        throw error;
       }
+      throw error;
     });
 
     response.status(201).json(createdUser);
@@ -58,6 +96,11 @@ app.post("/createUser", async (request, response) => {
         response
           .status(409)
           .json({ message: "User already exists.", error: error.message });
+        break;
+      case "UserCreationError":
+        response
+          .status(409)
+          .json({ message: "Error in creating user.", error: error.message });
         break;
       default:
         response.status(500).json({
@@ -90,7 +133,7 @@ app.put("/updateUser", async (request, response) => {
     const requestedProduct = user.product;
     const requestedAmount = user.amount;
 
-    const userData = await UserModel.findOne({ email: user.email });
+    const userData = await UserModel.findOne({ id: user.id });
     if (!userData) {
       return response.status(404).json({ message: "User not found." });
     }
